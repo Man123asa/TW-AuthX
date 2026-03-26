@@ -1,59 +1,29 @@
-/*const express = require('express');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const cors = require('cors');
-
-const app = express();
+require('dotenv').config();
+const express=require('express');
+const mongoose=require('mongoose');
+const {importJWK,jwtVerify}=require('jose');
+const jwt=require('jsonwebtoken');
+const cors=require('cors');
+const User=require('./User');
+const app=express();
 app.use(cors());
-
-const SERVER_PRIVATE_KEY = "super-secret-key-123";
-
-app.get('/api/data', (req, res) => {
-    const authHeader = req.headers['authorization']; // "Bearer <JWT>"
-    const dpopHeader = req.headers['dpop']; // The Browser's Signature
-
-    try {
-        const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, SERVER_PRIVATE_KEY);
-
-        // THE ELITE CHECK: Verify DPoP Proof
-        // In a real app, you'd decode the dpopHeader JWT and check its 'jkt'
-        const proofHash = crypto.createHash('sha256').update(dpopHeader).digest('base64url');
-
-        if (decoded.cnf.jkt !== proofHash) {
-            return res.status(403).json({ error: "Token Hijacking Detected! Access Denied." });
-        }
-
-        res.json({ message: "Welcome! This data is locked to your browser's private key." });
-    } catch (err) {
-        res.status(401).send("Invalid Token");
-    }
-});
-
-app.listen(4000, () => console.log("Resource Server running on :4000")); */
-
-
-const express = require('express');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const cors = require('cors');
-
-const app = express();
-app.use(cors());
-
-const SERVER_SECRET = "super-secret-key-123";
-
+mongoose.connect(process.env.MONGO_URI);
 app.get('/api/data', async (req, res) => {
-    const token = req.headers['authorization']?.split(' ')[1];
-    const dpopProof = req.headers['dpop']; // This is now a signed JWT from the client
-
-    try {
-        const decodedToken = jwt.verify(token, SERVER_SECRET);
-        res.json({ data: "Top Secret: You proved possession of your private key!" });
-    } catch (err) {
-        res.status(401).json({ error: "Verification Failed" });
+    const authHeader=req.headers['authorization'];
+    const dpopProof=req.headers['dpop']; // The Signed Proof
+    try 
+    {
+        const token=authHeader.split(' ')[1];
+        const decodedToken=jwt.verify(token,process.env.SERVER_SECRET);
+        const user=await User.findOne({username: decodedToken.sub});
+        const publicKey=await importJWK(user.publicKey,'RS256');
+        // To verify the DPoP signature against the user's public key
+        await jwtVerify(dpopProof,publicKey);
+        res.json({secret:"Access Granted: Token belongs to this hardware." });
+    } 
+    catch (err) 
+    {
+        res.status(401).json({ error:"Invalid Proof or Hijacked Token" });
     }
 });
-
-app.listen(4000, () => console.log("Resource Server running on :4000"));
-
+app.listen(4000,() => console.log("Vault on:4000"));
